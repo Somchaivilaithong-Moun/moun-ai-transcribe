@@ -1,8 +1,26 @@
 __pycache__/
 *.py[cod]
+*.log
 .venv/
 venv/
 env/
+.env
 .DS_Store
-.streamlit/secrets.toml
-*.tmp
+Thumbs.db
+
+# File test / file người dùng
+*.mp3
+*.wav
+*.m4a
+*.mp4
+*.webm
+*.ogg
+*.flac
+
+# File xuất khi test local
+*.docx
+*.pdf
+*.srt
+*.txt
+!requirements.txt
+!packages.txt

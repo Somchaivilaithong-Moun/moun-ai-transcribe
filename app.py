@@ -5,7 +5,7 @@ import re
 import tempfile
 from io import BytesIO
 from pathlib import Path
-from xml.sax.saxutils import escape
+from xml.sax.saxutils import escape as xml_escape
 
 import streamlit as st
 from docx import Document
@@ -17,23 +17,35 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
 
+# =========================================================
+# CẤU HÌNH ỨNG DỤNG
+# =========================================================
 APP_NAME = "Moun AI Transcribe"
 MODEL_NAME = "base"
 MAX_FILE_MB = 200
 SUPPORTED_TYPES = ["mp3", "wav", "m4a", "mp4", "webm", "ogg", "flac"]
 
 LANGUAGES = {
-    "Tự động nhận diện": None,
-    "Tiếng Việt": "vi",
-    "Tiếng Lào": "lo",
-    "Tiếng Thái": "th",
-    "Tiếng Anh": "en",
+    "✨ Tự động nhận diện": None,
+    "🇻🇳 Tiếng Việt": "vi",
+    "🇬🇧 English": "en",
+    "🇱🇦 ພາສາລາວ / Tiếng Lào": "lo",
+    "🇹🇭 ภาษาไทย / Tiếng Thái": "th",
+    "🇨🇳 中文 / Tiếng Trung": "zh",
 }
 
+LANGUAGE_DISPLAY = {
+    "vi": "🇻🇳 Tiếng Việt",
+    "en": "🇬🇧 English",
+    "lo": "🇱🇦 ພາສາລາວ / Tiếng Lào",
+    "th": "🇹🇭 ภาษาไทย / Tiếng Thái",
+    "zh": "🇨🇳 中文 / Tiếng Trung",
+}
 
 st.set_page_config(
     page_title=APP_NAME,
@@ -43,76 +55,313 @@ st.set_page_config(
 )
 
 
-# -----------------------------
+# =========================================================
 # GIAO DIỆN
-# -----------------------------
-st.markdown(
-    """
-    <style>
+# =========================================================
+def apply_custom_css() -> None:
+    st.markdown(
+        """
+        <style>
+        :root {
+            --ink: #163247;
+            --muted: #607786;
+            --teal: #16b8a6;
+            --blue: #3b82f6;
+            --gold: #f5c451;
+            --card: rgba(255,255,255,.76);
+            --line: rgba(29, 109, 116, .12);
+        }
+
         .stApp {
             background:
-                radial-gradient(circle at 0% 0%, rgba(255, 200, 87, 0.18), transparent 28%),
-                radial-gradient(circle at 100% 5%, rgba(44, 196, 179, 0.18), transparent 30%),
-                linear-gradient(135deg, #fffaf0 0%, #f5fffd 45%, #f6f8ff 100%);
+                radial-gradient(circle at 6% 6%, rgba(245,196,81,.22), transparent 26%),
+                radial-gradient(circle at 96% 7%, rgba(22,184,166,.20), transparent 28%),
+                radial-gradient(circle at 75% 86%, rgba(59,130,246,.10), transparent 30%),
+                linear-gradient(135deg, #fffaf0 0%, #f5fffc 44%, #f4f7ff 100%);
+            color: var(--ink);
         }
-        .block-container {
+
+        .main .block-container {
             max-width: 1180px;
-            padding-top: 2rem;
+            padding-top: 1.6rem;
             padding-bottom: 3rem;
         }
+
+        [data-testid="stSidebar"] {
+            background: linear-gradient(180deg, #eefaf6 0%, #eef6ff 100%);
+            border-right: 1px solid rgba(31,92,100,.08);
+        }
+
+        [data-testid="stSidebar"] > div:first-child {
+            padding-top: 1.5rem;
+        }
+
         .hero {
-            padding: 28px 30px;
-            border-radius: 26px;
-            background: linear-gradient(135deg, rgba(255,188,71,0.95), rgba(35,184,166,0.95));
-            color: white;
-            box-shadow: 0 18px 50px rgba(32, 112, 106, 0.18);
-            margin-bottom: 22px;
+            position: relative;
+            overflow: hidden;
+            padding: 34px 36px;
+            border-radius: 30px;
+            color: #fff;
+            background: linear-gradient(120deg, #f1bd4d 0%, #69c790 46%, #20b9b1 100%);
+            box-shadow: 0 22px 60px rgba(27,117,112,.18);
+            margin-bottom: 20px;
+            isolation: isolate;
         }
-        .hero h1 {
-            margin: 0 0 8px 0;
-            font-size: clamp(2rem, 5vw, 3.4rem);
-            line-height: 1.05;
+
+        .hero::before,
+        .hero::after {
+            content: "";
+            position: absolute;
+            border-radius: 999px;
+            background: rgba(255,255,255,.14);
+            z-index: -1;
+            animation: floatBlob 8s ease-in-out infinite;
         }
-        .hero p {
-            margin: 0;
-            font-size: 1.05rem;
-            opacity: 0.96;
+
+        .hero::before {
+            width: 190px;
+            height: 190px;
+            right: -40px;
+            top: -55px;
         }
-        .feature-card {
-            border: 1px solid rgba(23, 121, 111, 0.12);
-            border-radius: 20px;
-            padding: 18px 20px;
-            background: rgba(255,255,255,0.78);
-            box-shadow: 0 10px 30px rgba(34, 80, 75, 0.06);
-            min-height: 116px;
+
+        .hero::after {
+            width: 120px;
+            height: 120px;
+            right: 140px;
+            bottom: -55px;
+            animation-delay: 1.5s;
         }
-        .feature-card b { font-size: 1.02rem; }
-        .small-note { color: #5d6c6a; font-size: 0.92rem; }
-        div[data-testid="stFileUploader"] {
-            background: rgba(255,255,255,0.74);
-            border-radius: 20px;
-            padding: 10px 14px 4px 14px;
-            border: 1px dashed rgba(35,184,166,0.4);
+
+        @keyframes floatBlob {
+            0%, 100% { transform: translateY(0px) scale(1); }
+            50% { transform: translateY(10px) scale(1.05); }
         }
-        div[data-testid="stDownloadButton"] button,
-        div[data-testid="stButton"] button {
-            border-radius: 14px;
-            min-height: 44px;
+
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 14px;
+            border-radius: 999px;
+            background: rgba(255,255,255,.19);
+            border: 1px solid rgba(255,255,255,.28);
+            backdrop-filter: blur(8px);
+            font-size: .88rem;
             font-weight: 700;
+            margin-bottom: 14px;
         }
-        textarea {
-            border-radius: 16px !important;
+
+        .hero-title {
+            font-size: clamp(2.35rem, 5vw, 4rem);
+            line-height: .98;
+            letter-spacing: -.035em;
+            margin: 0 0 14px 0;
+            font-weight: 850;
         }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+
+        .hero-text {
+            font-size: 1.08rem;
+            line-height: 1.75;
+            max-width: 850px;
+            margin: 0;
+            opacity: .98;
+        }
+
+        .language-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 18px;
+        }
+
+        .lang-chip {
+            padding: 7px 11px;
+            border-radius: 999px;
+            background: rgba(255,255,255,.16);
+            border: 1px solid rgba(255,255,255,.22);
+            font-size: .84rem;
+            font-weight: 650;
+        }
+
+        .feature-card {
+            height: 100%;
+            min-height: 175px;
+            padding: 22px;
+            border-radius: 23px;
+            background: var(--card);
+            border: 1px solid var(--line);
+            box-shadow: 0 12px 32px rgba(22,73,89,.07);
+            backdrop-filter: blur(12px);
+            transition: transform .18s ease, box-shadow .18s ease;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 18px 42px rgba(22,73,89,.11);
+        }
+
+        .feature-icon {
+            width: 44px;
+            height: 44px;
+            display: grid;
+            place-items: center;
+            border-radius: 14px;
+            font-size: 1.35rem;
+            background: linear-gradient(135deg, rgba(245,196,81,.24), rgba(22,184,166,.18));
+            margin-bottom: 14px;
+        }
+
+        .feature-card h3 {
+            margin: 0 0 9px 0;
+            color: var(--ink);
+            font-size: 1.22rem;
+        }
+
+        .feature-card p {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.65;
+            font-size: .96rem;
+        }
+
+        .section-kicker {
+            color: #0e927f;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            font-size: .78rem;
+            margin-top: .8rem;
+            margin-bottom: .2rem;
+        }
+
+        .section-title {
+            color: var(--ink);
+            font-size: clamp(1.55rem, 3vw, 2rem);
+            font-weight: 850;
+            margin: 0 0 .35rem 0;
+            letter-spacing: -.02em;
+        }
+
+        .section-note {
+            color: var(--muted);
+            line-height: 1.65;
+            margin-bottom: .95rem;
+        }
+
+        .privacy-card {
+            margin-top: .8rem;
+            padding: 14px 15px;
+            border-radius: 16px;
+            background: rgba(255,255,255,.64);
+            border: 1px solid rgba(22,184,166,.14);
+            color: #466274;
+            line-height: 1.55;
+            font-size: .9rem;
+        }
+
+        .info-strip {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0,1fr));
+            gap: 12px;
+            margin: 14px 0 8px 0;
+        }
+
+        .info-pill {
+            padding: 13px 14px;
+            border-radius: 16px;
+            background: rgba(255,255,255,.68);
+            border: 1px solid rgba(22,184,166,.10);
+            color: #436071;
+            font-size: .9rem;
+        }
+
+        div[data-testid="stFileUploader"] {
+            background: rgba(255,255,255,.76);
+            border-radius: 24px;
+            padding: 12px 14px 6px 14px;
+            border: 1.5px dashed rgba(22,184,166,.40);
+            box-shadow: 0 12px 32px rgba(22,73,89,.05);
+        }
+
+        div[data-testid="stFileUploaderDropzone"] {
+            background: rgba(247,255,253,.74);
+            border-radius: 18px;
+        }
+
+        div[data-testid="stButton"] button,
+        div[data-testid="stDownloadButton"] button {
+            border-radius: 15px !important;
+            min-height: 46px;
+            font-weight: 800 !important;
+            transition: transform .14s ease, filter .14s ease, box-shadow .14s ease;
+        }
+
+        div[data-testid="stButton"] button[kind="primary"] {
+            border: none !important;
+            color: #fff !important;
+            background: linear-gradient(135deg, #17ae9c 0%, #3184ef 100%) !important;
+            box-shadow: 0 10px 24px rgba(49,132,239,.18);
+        }
+
+        div[data-testid="stButton"] button:hover,
+        div[data-testid="stDownloadButton"] button:hover {
+            transform: translateY(-1px);
+            filter: brightness(1.02);
+        }
+
+        div[data-testid="stTextArea"] textarea {
+            border-radius: 18px !important;
+            border: 1px solid rgba(28,112,123,.14) !important;
+            background: rgba(255,255,255,.80) !important;
+            color: #17364a !important;
+            line-height: 1.7 !important;
+            font-size: 1rem !important;
+        }
+
+        .footer-card {
+            margin-top: 1.6rem;
+            padding: 16px 18px;
+            border-radius: 18px;
+            background: rgba(255,255,255,.56);
+            border: 1px solid rgba(25,96,109,.08);
+            text-align: center;
+            color: #6b7f8c;
+            font-size: .88rem;
+        }
+
+        @media (max-width: 900px) {
+            .main .block-container { padding-left: 1rem; padding-right: 1rem; }
+            .hero { padding: 28px 24px; border-radius: 24px; }
+            .info-strip { grid-template-columns: 1fr; }
+            .feature-card { min-height: 0; }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+apply_custom_css()
 
 st.markdown(
     """
     <div class="hero">
-        <h1>🎙️ Moun AI Transcribe</h1>
-        <p>Chuyển âm thanh / video thành văn bản, sau đó tải về TXT, Word, PDF hoặc phụ đề SRT.</p>
+        <div class="hero-badge">✨ AI Speech-to-Text • Word • PDF • SRT</div>
+        <div class="hero-title">🎙️ Moun AI Transcribe</div>
+        <p class="hero-text">
+            Chuyển âm thanh và video thành văn bản bằng AI, chỉnh sửa trực tiếp trên web,
+            sau đó tải về TXT, Word, PDF hoặc phụ đề SRT. Thiết kế dành cho học tập,
+            bài giảng, phỏng vấn và công việc hằng ngày.
+        </p>
+        <div class="language-row">
+            <span class="lang-chip">🇻🇳 Việt</span>
+            <span class="lang-chip">🇬🇧 English</span>
+            <span class="lang-chip">🇱🇦 ລາວ</span>
+            <span class="lang-chip">🇹🇭 ไทย</span>
+            <span class="lang-chip">🇨🇳 中文</span>
+            <span class="lang-chip">✨ Auto Detect</span>
+        </div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -121,29 +370,47 @@ st.markdown(
 c1, c2, c3 = st.columns(3)
 with c1:
     st.markdown(
-        '<div class="feature-card"><b>⚡ Nhận diện bằng AI</b><br><span class="small-note">Whisper chạy trên CPU, phù hợp cho bản demo và học tập.</span></div>',
+        """
+        <div class="feature-card">
+            <div class="feature-icon">⚡</div>
+            <h3>Nhận diện bằng AI</h3>
+            <p>faster-whisper xử lý trực tiếp trên CPU, không cần OpenAI API key và không tính phí theo từng phút.</p>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 with c2:
     st.markdown(
-        '<div class="feature-card"><b>🌏 Nhiều ngôn ngữ</b><br><span class="small-note">Tự động nhận diện hoặc chọn Việt, Lào, Thái, Anh.</span></div>',
+        """
+        <div class="feature-card">
+            <div class="feature-icon">🌏</div>
+            <h3>5 ngôn ngữ + Auto</h3>
+            <p>Chọn Việt, Anh, Lào, Thái, Trung hoặc để AI tự nhận diện ngôn ngữ trong file.</p>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 with c3:
     st.markdown(
-        '<div class="feature-card"><b>📄 Xuất nhiều định dạng</b><br><span class="small-note">TXT, DOCX, PDF và SRT chỉ bằng một lần chuyển đổi.</span></div>',
+        """
+        <div class="feature-card">
+            <div class="feature-icon">📄</div>
+            <h3>Xuất nhiều định dạng</h3>
+            <p>Chỉnh transcript trước khi tải TXT, DOCX, PDF; đồng thời tạo SRT có timestamp từ kết quả AI.</p>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
 st.write("")
 
 
-# -----------------------------
+# =========================================================
 # HÀM XỬ LÝ
-# -----------------------------
+# =========================================================
 @st.cache_resource(show_spinner=False)
 def load_model() -> WhisperModel:
-    """Tải model một lần và dùng lại cho các lần xử lý sau."""
+    """Tải model một lần và dùng lại trong cùng phiên server."""
     return WhisperModel(MODEL_NAME, device="cpu", compute_type="int8")
 
 
@@ -172,26 +439,43 @@ def safe_stem(filename: str) -> str:
     return stem[:80].strip(" ._") or "transcript"
 
 
+def display_language(code: str | None) -> str:
+    if not code:
+        return "Không xác định"
+    return LANGUAGE_DISPLAY.get(code, code.upper())
+
+
 def make_docx(text: str, source_name: str, detected_language: str) -> bytes:
     doc = Document()
 
+    normal_style = doc.styles["Normal"]
+    normal_style.font.name = "Arial"
+    normal_style.font.size = Pt(11)
+
     title = doc.add_paragraph()
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = title.add_run("VĂN BẢN CHUYỂN TỪ ÂM THANH / VIDEO")
+    run = title.add_run("MOUN AI TRANSCRIBE")
     run.bold = True
-    run.font.size = Pt(18)
+    run.font.size = Pt(19)
+
+    subtitle = doc.add_paragraph()
+    subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    sub_run = subtitle.add_run("Văn bản chuyển từ âm thanh / video")
+    sub_run.bold = True
+    sub_run.font.size = Pt(13)
 
     meta = doc.add_paragraph()
     meta.alignment = WD_ALIGN_PARAGRAPH.CENTER
     meta_run = meta.add_run(f"Nguồn: {source_name}  •  Ngôn ngữ: {detected_language}")
     meta_run.italic = True
-    meta_run.font.size = Pt(10)
+    meta_run.font.size = Pt(9.5)
 
     doc.add_paragraph("")
     for line in text.splitlines():
         if line.strip():
             p = doc.add_paragraph(line.strip())
             p.paragraph_format.space_after = Pt(6)
+            p.paragraph_format.line_spacing = 1.15
         else:
             doc.add_paragraph("")
 
@@ -200,38 +484,65 @@ def make_docx(text: str, source_name: str, detected_language: str) -> bytes:
     return buffer.getvalue()
 
 
-def find_unicode_font() -> str | None:
-    candidates = [
-        # Windows
-        r"C:\Windows\Fonts\arial.ttf",
-        r"C:\Windows\Fonts\calibri.ttf",
-        r"C:\Windows\Fonts\segoeui.ttf",
-        # Linux / Streamlit Cloud
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+def find_unicode_font(language_code: str | None) -> str | None:
+    language_specific = {
+        "lo": [
+            "/usr/share/fonts/truetype/noto/NotoSansLao-Regular.ttf",
+            r"C:\Windows\Fonts\NotoSansLao-Regular.ttf",
+        ],
+        "th": [
+            "/usr/share/fonts/truetype/noto/NotoSansThai-Regular.ttf",
+            r"C:\Windows\Fonts\NotoSansThai-Regular.ttf",
+        ],
+    }
+
+    common = [
+        "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        # macOS
+        r"C:\Windows\Fonts\arial.ttf",
+        r"C:\Windows\Fonts\calibri.ttf",
+        r"C:\Windows\Fonts\segoeui.ttf",
         "/Library/Fonts/Arial Unicode.ttf",
         "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
     ]
+
+    candidates = language_specific.get(language_code or "", []) + common
     for font_path in candidates:
         if os.path.exists(font_path):
             return font_path
     return None
 
 
-def make_pdf(text: str, source_name: str, detected_language: str) -> bytes:
-    font_path = find_unicode_font()
+def register_pdf_font(language_code: str | None) -> str:
+    # ReportLab có CID font tích hợp cho tiếng Trung, không cần nhúng file font.
+    if language_code == "zh":
+        font_name = "STSong-Light"
+        if font_name not in pdfmetrics.getRegisteredFontNames():
+            pdfmetrics.registerFont(UnicodeCIDFont(font_name))
+        return font_name
+
+    font_path = find_unicode_font(language_code)
     if not font_path:
         raise RuntimeError(
-            "Máy chủ không tìm thấy font Unicode để tạo PDF tiếng Việt/Lào/Thái. "
-            "Bạn vẫn có thể tải TXT và Word."
+            "Máy chủ không tìm thấy font Unicode phù hợp để tạo PDF. "
+            "Bạn vẫn có thể tải TXT, Word và SRT."
         )
 
-    font_name = "AppUnicodeFont"
+    font_name = f"AppUnicodeFont_{language_code or 'default'}"
     if font_name not in pdfmetrics.getRegisteredFontNames():
         pdfmetrics.registerFont(TTFont(font_name, font_path))
+    return font_name
+
+
+def make_pdf(
+    text: str,
+    source_name: str,
+    detected_language_code: str,
+    detected_language_display: str,
+) -> bytes:
+    font_name = register_pdf_font(detected_language_code)
 
     buffer = BytesIO()
     pdf = SimpleDocTemplate(
@@ -241,7 +552,7 @@ def make_pdf(text: str, source_name: str, detected_language: str) -> bytes:
         rightMargin=18 * mm,
         topMargin=18 * mm,
         bottomMargin=18 * mm,
-        title="AI Transcript",
+        title="Moun AI Transcript",
         author=APP_NAME,
     )
 
@@ -254,6 +565,7 @@ def make_pdf(text: str, source_name: str, detected_language: str) -> bytes:
         leading=22,
         alignment=TA_CENTER,
         spaceAfter=8,
+        textColor="#17364A",
     )
     meta_style = ParagraphStyle(
         "AppMeta",
@@ -262,7 +574,7 @@ def make_pdf(text: str, source_name: str, detected_language: str) -> bytes:
         fontSize=9,
         leading=12,
         alignment=TA_CENTER,
-        textColor="#5c6664",
+        textColor="#667985",
         spaceAfter=14,
     )
     body_style = ParagraphStyle(
@@ -272,12 +584,14 @@ def make_pdf(text: str, source_name: str, detected_language: str) -> bytes:
         fontSize=11,
         leading=17,
         spaceAfter=7,
+        textColor="#1E3747",
     )
 
     story = [
-        Paragraph("VĂN BẢN CHUYỂN TỪ ÂM THANH / VIDEO", title_style),
+        Paragraph("MOUN AI TRANSCRIBE", title_style),
+        Paragraph("Văn bản chuyển từ âm thanh / video", title_style),
         Paragraph(
-            escape(f"Nguồn: {source_name} • Ngôn ngữ: {detected_language}"),
+            xml_escape(f"Nguồn: {source_name} • Ngôn ngữ: {detected_language_display}"),
             meta_style,
         ),
         Spacer(1, 4),
@@ -285,7 +599,7 @@ def make_pdf(text: str, source_name: str, detected_language: str) -> bytes:
 
     for line in text.splitlines():
         if line.strip():
-            story.append(Paragraph(escape(line.strip()), body_style))
+            story.append(Paragraph(xml_escape(line.strip()), body_style))
         else:
             story.append(Spacer(1, 8))
 
@@ -294,8 +608,9 @@ def make_pdf(text: str, source_name: str, detected_language: str) -> bytes:
 
 
 def make_srt(segments: list[dict]) -> str:
-    blocks = []
-    for index, segment in enumerate(segments, start=1):
+    blocks: list[str] = []
+    index = 1
+    for segment in segments:
         text = segment["text"].strip()
         if not text:
             continue
@@ -304,6 +619,7 @@ def make_srt(segments: list[dict]) -> str:
             f"{format_srt_time(segment['start'])} --> {format_srt_time(segment['end'])}\n"
             f"{text}"
         )
+        index += 1
     return "\n\n".join(blocks) + ("\n" if blocks else "")
 
 
@@ -314,8 +630,9 @@ def transcribe_file(
     progress_bar,
     status_box,
 ):
+    status_box.info("🧠 Đang tải mô hình AI...")
     model = load_model()
-    status_box.write("🧠 Đang nhận diện giọng nói...")
+    status_box.info("🎧 Đang nghe và nhận diện giọng nói...")
 
     segments_generator, info = model.transcribe(
         file_path,
@@ -325,8 +642,8 @@ def transcribe_file(
         condition_on_previous_text=True,
     )
 
-    collected = []
-    text_lines = []
+    collected: list[dict] = []
+    text_lines: list[str] = []
     duration = max(float(info.duration or 0), 1.0)
 
     for segment in segments_generator:
@@ -350,52 +667,94 @@ def transcribe_file(
         progress_bar.progress(percent)
 
     progress_bar.progress(100)
-    status_box.write("✅ Hoàn thành nhận diện.")
+    status_box.success("✅ Hoàn thành nhận diện.")
 
     detected = str(info.language or "unknown")
     probability = float(info.language_probability or 0.0)
     return "\n".join(text_lines), collected, detected, probability
 
 
-# -----------------------------
+# =========================================================
 # SIDEBAR
-# -----------------------------
+# =========================================================
 with st.sidebar:
-    st.header("⚙️ Cài đặt")
+    st.markdown("## ⚙️ Cài đặt")
+    st.caption("Tùy chỉnh trước khi bắt đầu chuyển đổi.")
+
     language_label = st.selectbox(
-        "Ngôn ngữ trong file",
+        "🌐 Ngôn ngữ trong file",
         options=list(LANGUAGES.keys()),
         index=0,
-        help="Nếu không chắc, để Tự động nhận diện.",
+        help="Nếu không chắc, hãy để Tự động nhận diện.",
     )
+
     with_timestamps = st.toggle(
-        "Thêm thời gian vào văn bản",
+        "⏱️ Thêm thời gian vào văn bản",
         value=False,
         help="Ví dụ: [00:01:12] Nội dung...",
     )
 
     st.divider()
-    st.caption(f"Model: Whisper `{MODEL_NAME}` • CPU int8")
-    st.caption(f"Giới hạn upload cấu hình: {MAX_FILE_MB} MB")
-    st.info(
-        "File được ghi tạm trong lúc xử lý và code sẽ xóa file tạm sau khi hoàn tất. "
-        "Ứng dụng này không tự lưu lịch sử transcript vào database."
+    st.markdown("### 🤖 Hệ thống")
+    st.caption(f"Model: Whisper `{MODEL_NAME}`")
+    st.caption("Thiết bị: CPU • int8")
+    st.caption(f"Giới hạn upload: {MAX_FILE_MB} MB")
+
+    st.markdown(
+        """
+        <div class="privacy-card">
+            <b>🔐 Quyền riêng tư</b><br><br>
+            File chỉ được ghi tạm trong lúc xử lý và code sẽ cố gắng xóa file tạm sau khi hoàn tất.
+            Ứng dụng hiện không có database lưu lịch sử transcript.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        """
+        <div class="privacy-card">
+            <b>💡 Mẹo</b><br><br>
+            Âm thanh rõ, ít tạp âm và giọng nói đủ lớn sẽ giúp kết quả chính xác hơn.
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
 
-# -----------------------------
+# =========================================================
 # UPLOAD + XỬ LÝ
-# -----------------------------
-st.subheader("1. Chọn file")
+# =========================================================
+st.markdown('<div class="section-kicker">Bước 1</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">Chọn file âm thanh hoặc video</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="section-note">Kéo thả file vào khu vực bên dưới hoặc bấm Browse files. Hỗ trợ MP3, WAV, M4A, MP4, WEBM, OGG và FLAC.</div>',
+    unsafe_allow_html=True,
+)
+
 uploaded_file = st.file_uploader(
-    "Kéo thả file vào đây hoặc bấm Browse files",
+    "Tải file lên",
     type=SUPPORTED_TYPES,
-    help="Hỗ trợ MP3, WAV, M4A, MP4, WEBM, OGG, FLAC.",
+    help="Giới hạn theo cấu hình hiện tại là 200 MB mỗi file.",
+    label_visibility="collapsed",
 )
 
 if uploaded_file is None:
     st.markdown(
-        "**Cách dùng:** tải file lên → chọn ngôn ngữ → bấm **Chuyển thành văn bản** → chỉnh lại nội dung nếu cần → tải TXT / Word / PDF / SRT."
+        """
+        <div class="info-strip">
+            <div class="info-pill">① Upload file</div>
+            <div class="info-pill">② AI chuyển thành văn bản</div>
+            <div class="info-pill">③ Sửa và tải TXT / Word / PDF / SRT</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        """
+        <div class="footer-card">Moun AI Transcribe • faster-whisper • Không cần API key</div>
+        """,
+        unsafe_allow_html=True,
     )
     st.stop()
 
@@ -407,17 +766,22 @@ if file_size_mb > MAX_FILE_MB:
 signature = f"{uploaded_file.name}:{uploaded_file.size}"
 if st.session_state.get("upload_signature") != signature:
     st.session_state["upload_signature"] = signature
-    st.session_state.pop("transcript_text", None)
-    st.session_state.pop("edited_text", None)
-    st.session_state.pop("segments", None)
-    st.session_state.pop("detected_language", None)
-    st.session_state.pop("language_probability", None)
+    for key in [
+        "transcript_text",
+        "edited_text",
+        "segments",
+        "detected_language",
+        "language_probability",
+    ]:
+        st.session_state.pop(key, None)
 
-info_col1, info_col2 = st.columns([2, 1])
+info_col1, info_col2, info_col3 = st.columns([2.2, 1, 1])
 with info_col1:
-    st.write(f"**File:** `{uploaded_file.name}`")
+    st.info(f"📁 **{uploaded_file.name}**")
 with info_col2:
-    st.write(f"**Dung lượng:** {file_size_mb:.2f} MB")
+    st.info(f"💾 **{file_size_mb:.2f} MB**")
+with info_col3:
+    st.info(f"🌐 **{language_label}**")
 
 suffix = Path(uploaded_file.name).suffix.lower()
 if suffix in {".mp4", ".webm"}:
@@ -425,8 +789,14 @@ if suffix in {".mp4", ".webm"}:
 else:
     st.audio(uploaded_file)
 
-st.subheader("2. Chuyển thành văn bản")
-button_col, clear_col = st.columns([3, 1])
+st.markdown('<div class="section-kicker">Bước 2</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">Chuyển thành văn bản bằng AI</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="section-note">Lần đầu server tải model có thể lâu hơn. Sau đó model được cache để các lần tiếp theo nhanh hơn.</div>',
+    unsafe_allow_html=True,
+)
+
+button_col, clear_col = st.columns([3.2, 1])
 with button_col:
     start = st.button(
         "✨ Chuyển thành văn bản",
@@ -450,13 +820,12 @@ if start:
     try:
         progress = st.progress(0)
         status = st.empty()
-        status.write("📦 Đang chuẩn bị file...")
+        status.info("📦 Đang chuẩn bị file...")
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix or ".media") as tmp:
             tmp.write(uploaded_file.getbuffer())
             temp_path = tmp.name
 
-        status.write("🤖 Đang tải model AI (lần đầu có thể lâu hơn)...")
         transcript, segments, detected, probability = transcribe_file(
             temp_path,
             LANGUAGES[language_label],
@@ -473,7 +842,7 @@ if start:
             st.session_state["segments"] = segments
             st.session_state["detected_language"] = detected
             st.session_state["language_probability"] = probability
-            st.success("Chuyển đổi thành công!")
+            st.success("🎉 Chuyển đổi thành công! Bạn có thể kiểm tra và chỉnh sửa nội dung bên dưới.")
 
     except Exception as exc:
         st.error("Không thể xử lý file. Chi tiết lỗi:")
@@ -486,18 +855,20 @@ if start:
                 pass
 
 
-# -----------------------------
+# =========================================================
 # KẾT QUẢ + XUẤT FILE
-# -----------------------------
+# =========================================================
 if st.session_state.get("transcript_text"):
-    detected_language = st.session_state.get("detected_language", "unknown")
+    detected_language_code = st.session_state.get("detected_language", "unknown")
+    detected_language_name = display_language(detected_language_code)
     probability = st.session_state.get("language_probability", 0.0)
     segments = st.session_state.get("segments", [])
 
-    st.subheader("3. Kiểm tra và chỉnh sửa")
-    st.caption(
-        f"AI nhận diện ngôn ngữ: **{detected_language}** "
-        f"(độ tin cậy khoảng {probability * 100:.1f}%). Bạn có thể sửa trực tiếp nội dung bên dưới trước khi tải."
+    st.markdown('<div class="section-kicker">Bước 3</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Kiểm tra và chỉnh sửa</div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="section-note">AI nhận diện: <b>{detected_language_name}</b> • Độ tin cậy khoảng <b>{probability * 100:.1f}%</b>. Bạn có thể sửa trực tiếp văn bản trước khi tải.</div>',
+        unsafe_allow_html=True,
     )
 
     edited_text = st.text_area(
@@ -507,17 +878,31 @@ if st.session_state.get("transcript_text"):
         label_visibility="collapsed",
     )
 
-    st.subheader("4. Tải kết quả")
-    base_name = safe_stem(uploaded_file.name)
+    char_count = len(edited_text)
+    word_count = len(edited_text.split())
+    st.caption(f"✍️ {word_count:,} từ • {char_count:,} ký tự")
 
+    st.markdown('<div class="section-kicker">Bước 4</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Tải kết quả</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-note">TXT, Word và PDF dùng nội dung bạn đang chỉnh sửa. SRT giữ các đoạn và timestamp từ kết quả AI ban đầu.</div>',
+        unsafe_allow_html=True,
+    )
+
+    base_name = safe_stem(uploaded_file.name)
     txt_bytes = edited_text.encode("utf-8")
-    docx_bytes = make_docx(edited_text, uploaded_file.name, detected_language)
+    docx_bytes = make_docx(edited_text, uploaded_file.name, detected_language_name)
     srt_text = make_srt(segments)
 
     pdf_bytes = None
     pdf_error = None
     try:
-        pdf_bytes = make_pdf(edited_text, uploaded_file.name, detected_language)
+        pdf_bytes = make_pdf(
+            edited_text,
+            uploaded_file.name,
+            detected_language_code,
+            detected_language_name,
+        )
     except Exception as exc:
         pdf_error = str(exc)
 
@@ -560,9 +945,9 @@ if st.session_state.get("transcript_text"):
         )
 
     if pdf_error:
-        st.warning(pdf_error)
+        st.warning(f"PDF chưa tạo được: {pdf_error}")
 
-    with st.expander("Xem các đoạn có timestamp"):
+    with st.expander("🕒 Xem các đoạn có timestamp"):
         if segments:
             for item in segments:
                 st.write(
@@ -571,7 +956,12 @@ if st.session_state.get("transcript_text"):
         else:
             st.caption("Chưa có dữ liệu đoạn.")
 
-st.divider()
-st.caption(
-    "Moun AI Transcribe • faster-whisper • Khi triển khai trên hosting miễn phí, file dài có thể xử lý chậm do giới hạn CPU/RAM."
+st.markdown(
+    """
+    <div class="footer-card">
+        🎙️ <b>Moun AI Transcribe</b> • faster-whisper • 5 ngôn ngữ + Auto Detect • TXT / DOCX / PDF / SRT<br>
+        <span style="opacity:.82">Hosting miễn phí có thể xử lý chậm với file dài hoặc khi nhiều người dùng cùng lúc.</span>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
